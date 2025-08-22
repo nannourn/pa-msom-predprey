@@ -94,6 +94,7 @@ models <- here("models")
 #| label: data-load
 #| warning: false
 #| message: false
+#| column: screen
 # check excel worksheets
 excel_sheets(here(data, "cameratrap_data_nan_2024.xlsx"))
 # read in EXCEL worksheets
