@@ -1,0 +1,501 @@
+---
+title: "Exploring Dynamic Community Occupancy Models in Cambodia Protected Areas"
+image: preview-image.jpg
+author:
+  - name: Nan NOURN
+    orcid: 0000-0001-5057-0640
+    corresponding: true
+    email: nan@msu.edu
+    roles:
+      - Investigation
+      - Analysis
+      - Writing
+    affiliations: Michigan State University
+  - name: Jackson FRECHETTE
+    orcid:
+    corresponding: false
+    email: jfrechette@conservation.org
+    roles:
+      - Writing
+      - Supervision
+    affiliations: Conservation International
+  - name: Dan KRAMER
+    orcid:
+    corresponding: false
+    email: dbk@msu.edu
+    roles:
+      - Writing
+      - Supervision
+    affiliations: Michigan State University
+keywords:
+  - Cambodia
+  - Ecology
+  - Occupancy model
+  - Camera trap
+abstract: | 
+  We explore dynamic community models (DCM) to explore occupancy analyses related to predator and prey communities in Cambodia. Specifically, we leverage wildlife detection/non-detection data occurrence collected from camerea trap arrays across multiple protected areas in Cambodia.
+
+date: last-modified
+bibliography: ref.bib
+csl: global-ecology-and-conservation.csl
+editor: visual
+format: 
+  html:
+    embed-resources: true
+    theme: cerulean
+    toc: true
+    toc-depth: 4
+    code-overflow: wrap
+    code-copy: true
+    code-link: true
+    html-math-method: katex
+    monofont: "Fira Code"
+    comments:
+      hypothesis: 
+        openSidebar: true
+        showHighlights: whenSidebarOpen
+  pdf: default
+  docx: default
+format-links: [pdf, docx]
+---
+
+```{r}
+#| label: packages
+#| warning: false
+#| message: false
+library(tidyverse)
+library(tidybayes)
+library(abind)
+library(jagsUI)
+library(sf)
+library(terra)
+library(tmap)
+library(gt)
+library(readxl)
+library(here)
+theme_set(theme_light(base_size = 11))
+options(scipen = 10^4)
+set.seed(855)
+here()
+
+# data file directory
+data <- here("data")
+models <- here("models")
+
+```
+
+# Introduction
+
+# Study Site 
+
+## CCMNP
+
+```{r}
+#| label: data-load
+#| warning: false
+#| message: false
+# check excel worksheets
+excel_sheets(here(data, "cameratrap_data_nan_2024.xlsx"))
+# read in EXCEL worksheets
+detections <- read_xlsx(here(data, "cameratrap_data_nan_2024.xlsx"), sheet = "images")
+taxa <- read_xlsx(here(data, "cameratrap_data_nan_2024.xlsx"), sheet = "taxa")
+deployments <- read_xlsx(here(data, "cameratrap_data_nan_2024.xlsx"), sheet = "camera")
+cambo.PA <- st_read(here(data, "npa_en.gpkg"))
+boundary <- cambo.PA |> filter(name=="Central Cardamom Mountains National Park")
+
+# set up camera trap deployment maps
+deployments.sf <- deployments |> st_as_sf(coords = c("utm_x","utm_y"), crs = 32648)
+st_crs(deployments.sf)
+# arrange camera id name columns
+deployments.sf <- deployments.sf |> relocate(camera_id_pool)
+
+# create buffer
+buffer.1km <- st_buffer(deployments.sf, dist = 565) # radius 500m
+(sqrt(st_area(buffer.1km)))                   # check buffer size (1 km^2) 
+# interactive tmap mode
+tmap_mode("view")
+# set tmap interactive baselayers
+tmap_options(basemap.server = c(Canvas = "Esri.WorldGrayCanvas",
+                          Imagery = "Esri.WorldImagery",
+                          Topo = "Esri.WorldTopoMap"))
+
+# create map
+tm_shape(deployments.sf) +
+  tm_dots(fill = "season",
+          fill.scale = tm_scale(style = "categorical",
+                                values = "viridis"),
+          fill_alpha = 0.75, 
+          size = 0.6) +
+tm_shape(boundary) +
+  tm_borders(col = "yellow") +
+tm_shape(buffer.1km) +
+  tm_borders(col = "red", lty = 2)
+
+
+```
+
+# Data
+
+## Camera Trap
+
+From the camera trap arrays within each protected area, we used the R package `camtrapR` to produce species detection matrices for multiple species. The matrices (M x J) and arrays (M x J x T) (M x J x T x Sp) with dimensions (site x survey period x primary season) for dynamic occupancy models for single species while increased by another dimension for our dynamic community models (site x survey period x primary season x species).
+
+```{r}
+#| label: data-setup
+#| warning: false
+#| message: false
+# load multi-season detection matrices
+
+# wild pig
+wild.pig <- read_csv(here(data, "detection_matrix_wildpig_multi.csv"))
+sites <- wild.pig[,1] |> rename(sites=1) # set up sites
+wild.pig <- wild.pig[,-1] |> as.matrix()
+wild.pig <- unname(wild.pig)
+# arrange separate matrices for dry and wet season
+# periods 1:5 -> dry; periods 6-10 -> wet
+wild.pig.dry <- wild.pig[, 1:5]
+wild.pig.wet <- wild.pig[, 6:10]
+
+# muntjac
+muntjac <- read_csv(here(data, "detection_matrix_muntjac_multi.csv"))
+muntjac <- muntjac[,-1] |> as.matrix()
+muntjac <- unname(muntjac)
+# arrange separate matrices for dry and wet season
+# periods 1:5 -> dry; periods 6-10 -> wet
+muntjac.dry <- muntjac[, 1:5]
+muntjac.wet <- muntjac[, 6:10]
+
+# chevrotain
+chevrotain <- read_csv(here(data, "detection_matrix_chevrotain_multi.csv"))
+chevrotain <- chevrotain[,-1] |> as.matrix()
+chevrotain <- unname(chevrotain)
+# arrange separate matrices for dry and wet season
+# periods 1:5 -> dry; periods 6-10 -> wet
+chevrotain.dry <- chevrotain[, 1:5]
+chevrotain.wet <- chevrotain[, 6:10]
+
+```
+
+## Covariates
+
+### Ecological
+
+### Observation
+
+# Methods
+
+## Statistical Analyses
+
+## Models
+
+### Static Occupancy Model (single species, multiple species, fixed season)
+
+We look at single-season static occupancy models one species at a time, and one season at a time due to the closure assumption of both seperate dry and wet seasons. So this is really 6 fitted seperate occupancy models.
+
+JAGS syntax:
+
+```{r}
+#| label: model-ssom-code
+#| warning: false
+#| message: false
+#| eval: false
+model {
+  # Priors
+  psi ~ dunif(0, 1)
+  p ~ dunif(0, 1)
+  # Likelihood
+  for (i in 1:M) {    # Loop over sites
+    z[i] ~ dbern(psi)         # State model
+    for (j in 1:J) { # Loop over replicate surveys
+      y[i,j] ~ dbern(z[i]*p)  # Observation model (only JAGS !)
+      # y[i,j] ~ dbern(mu[i])  # For WinBUGS define 'straw man'
+    }
+    # mu[i] <- z[i]*p          # Only WinBUGS
+  }
+}
+```
+
+```{r}
+#| label: model-ssom
+#| warning: false
+#| message: false
+# set up model dimensions 
+# should be similar across different seasons and species
+M <- nrow(wild.pig.dry)                   # Number of sites
+#M <- nrow(wild.pig.wet)
+#J <- ncol(wild.pig.dry)
+J <- ncol(wild.pig.wet)                   # Number of presence/absence measurements
+
+# bundle data
+wild.pig.dry.data <- list(y = wild.pig.dry, M = nrow(wild.pig.dry), 
+                          J = ncol(wild.pig.dry))
+wild.pig.wet.data <- list(y = wild.pig.wet, M = nrow(wild.pig.wet), 
+                          J = ncol(wild.pig.wet))
+muntjac.dry.data <- list(y = muntjac.dry, M = nrow(muntjac.dry), 
+                          J = ncol(muntjac.dry))
+muntjac.wet.data <- list(y = muntjac.wet, M = nrow(muntjac.wet), 
+                          J = ncol(muntjac.wet))
+chevrotain.dry.data <- list(y = chevrotain.dry, M = nrow(chevrotain.dry), 
+                          J = ncol(chevrotain.dry))
+chevrotain.wet.data <- list(y = chevrotain.wet, M = nrow(chevrotain.wet), 
+                          J = ncol(chevrotain.wet))
+
+
+# initial values
+wild.pig.dry.zst <- rep(1, wild.pig.dry.data$M)
+wild.pig.dry.inits <- function(){list(z = wild.pig.dry.zst)}
+wild.pig.wet.zst <- rep(1, wild.pig.wet.data$M)
+wild.pig.wet.inits <- function(){list(z = wild.pig.wet.zst)}
+
+muntjac.dry.zst <- rep(1, muntjac.dry.data$M)
+muntjac.dry.inits <- function(){list(z = muntjac.dry.zst)}
+muntjac.wet.zst <- rep(1, muntjac.wet.data$M)
+muntjac.wet.inits <- function(){list(z = muntjac.wet.zst)}
+
+chevrotain.dry.zst <- rep(1, chevrotain.dry.data$M)
+chevrotain.dry.inits <- function(){list(z = chevrotain.dry.zst)}
+chevrotain.wet.zst <- rep(1, chevrotain.wet.data$M)
+chevrotain.wet.inits <- function(){list(z = chevrotain.wet.zst)}
+
+# Parameters monitored
+params <- c("psi", "p")
+
+# MCMC settings
+ni <- 5000   ;   nt <- 1   ;   nb <- 1000   ;   nc <- 3
+
+# fit the seperate species and season models
+wild.pig.dry.fm1 <- jags(wild.pig.dry.data, wild.pig.dry.inits, params, 
+                     here(models, "ssom_naive.txt"), 
+                     n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb)
+wild.pig.wet.fm1 <- jags(wild.pig.wet.data, wild.pig.wet.inits, params, 
+                     here(models, "ssom_naive.txt"), 
+                     n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb)
+muntjac.dry.fm1 <- jags(muntjac.dry.data, muntjac.dry.inits, params, 
+                     here(models, "ssom_naive.txt"), 
+                     n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb)
+muntjac.wet.fm1 <- jags(muntjac.wet.data, muntjac.wet.inits, params, 
+                     here(models, "ssom_naive.txt"), 
+                     n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb)
+chevrotain.dry.fm1 <- jags(chevrotain.dry.data, chevrotain.dry.inits, params, 
+                     here(models, "ssom_naive.txt"), 
+                     n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb)
+chevrotain.wet.fm1 <- jags(chevrotain.wet.data, chevrotain.wet.inits, params, 
+                     here(models, "ssom_naive.txt"), 
+                     n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb)
+# check summary
+print(wild.pig.dry.fm1, dig = 3)
+print(wild.pig.wet.fm1, dig = 3)
+print(muntjac.dry.fm1, dig = 3)
+print(muntjac.wet.fm1, dig = 3)
+print(chevrotain.dry.fm1, dig = 3)
+print(chevrotain.wet.fm1, dig = 3)
+
+# check results and compare
+wild.pig.dry.table <- wild.pig.dry.fm1 |> 
+  gather_draws(psi, p) |> 
+  mutate(season = "dry", species="wild pig")
+wild.pig.wet.table <- wild.pig.wet.fm1 |> 
+  gather_draws(psi, p) |> 
+  mutate(season = "wet", species = "wild pig")
+muntjac.dry.table <- muntjac.dry.fm1 |> 
+  gather_draws(psi, p) |> 
+  mutate(season = "dry", species="muntjac")
+muntjac.wet.table <- muntjac.wet.fm1 |> 
+  gather_draws(psi, p) |> 
+  mutate(season = "wet", species = "muntjac")
+chevrotain.dry.table <- chevrotain.dry.fm1 |> 
+  gather_draws(psi, p) |> 
+  mutate(season = "dry", species="chevrotain")
+chevrotain.wet.table <- chevrotain.wet.fm1 |> 
+  gather_draws(psi, p) |> 
+  mutate(season = "wet", species = "chevrotain")
+
+# all species 
+bind_rows(wild.pig.dry.table, wild.pig.wet.table, 
+          muntjac.dry.table, muntjac.wet.table,
+          chevrotain.dry.table, chevrotain.wet.table)|> 
+  ggplot(aes(x = .value, y = .variable, fill = species)) +
+  stat_halfeye(alpha = 0.8, position = "dodge") +
+  labs(title = "Wild Pig, Muntjac, Chevrotain; SSOM",
+       subtitle = "CCMNP 2023") +
+  facet_wrap(~ season) +
+  coord_flip()
+```
+
+### Dynamic Occupancy Models (single species)
+
+Now we look at single-species dynamic occupancy models, observing changes from dry season to wet season for our 3 ungulate species. 
+
+This is really 3 seperate fitted dynamic occupancy models.
+
+JAGS syntax:
+
+```{r}
+#| label: model-dynocc-code
+#| warning: false
+#| message: false
+#| eval: false
+
+model {
+
+  # Priors
+  psi1 ~ dunif(0, 1)
+  phi ~ dunif(0, 1)
+  gamma ~ dunif(0, 1)
+  p ~ dunif(0, 1)
+
+  # Likelihood
+  # Ecological submodel: Define state conditional on parameters
+  for (i in 1:nsites){ # Loop over nsites sites
+    # Initial conditions of system
+    z[i,1] ~ dbern(psi1) # Presence/absence at start of study
+    # State transitions
+    for (t in 2:nyears){ # Loop over nyears years
+      z[i,t] ~ dbern(z[i,t-1] * phi + (1-z[i,t-1]) * gamma)
+    }
+  }
+
+  # Observation model
+  for (i in 1:nsites){
+    for (j in 1:nsurveys){
+      for (t in 1:nyears){
+        y[i,j,t] ~ dbern(z[i,t] * p)
+      }
+    }
+  }
+
+  # Derived parameters
+  eps <- 1 - phi # Extinction probability
+  psi[1] <- psi1 # Population occupancy
+  for (t in 2:nyears){
+    psi[t] <- psi[t-1] * phi + (1-psi[t-1]) * gamma
+  }
+}
+```
+
+```{r}
+#| label: model-dynocc
+#| warning: false
+#| message: false
+
+# turn seasonal matrices into arrays with dimensions (site x survey x seasons)
+wild.pig2 <- abind(wild.pig.dry, wild.pig.wet, along = 2.5)
+dim(wild.pig2)
+muntjac2 <- abind(muntjac.dry, muntjac.wet, along = 2.5)
+dim(muntjac2)
+chevrotain2 <- abind(chevrotain.dry, chevrotain.wet, along = 2.5)
+dim(chevrotain2)
+
+# JAGS
+# Bundle and summarize data
+wild.pig.data <- list(y = wild.pig2, 
+                     nsites = dim(wild.pig2)[1], 
+                     nsurveys = dim(wild.pig2)[2],
+                     nyears = dim(wild.pig2)[3])
+muntjac.data <- list(y = muntjac2, 
+                     nsites = dim(muntjac2)[1], 
+                     nsurveys = dim(muntjac2)[2],
+                     nyears = dim(muntjac2)[3])
+chevrotain.data <- list(y = chevrotain2, 
+                     nsites = dim(chevrotain2)[1], 
+                     nsurveys = dim(chevrotain2)[2],
+                     nyears = dim(chevrotain2)[3])
+
+# Initial values
+zobs <- apply(wild.pig2, c(1,3), function(x) max(x, na.rm = TRUE))
+zobs[zobs == '-Inf'] <- NA     # 13 site/years without visits
+zst <- zobs     # Obs. occurrence as inits for z
+inits <- function(){ list(z = zst)}
+
+muntjac.zobs <- apply(muntjac2, c(1,3), function(x) max(x, na.rm = TRUE))
+muntjac.zobs[muntjac.zobs == '-Inf'] <- NA     # site/years without visits
+muntjac.zst <- muntjac.zobs     # Obs. occurrence as inits for z
+muntjac.inits <- function(){ list(z = muntjac.zst)}
+
+chevrotain.zobs <- apply(chevrotain2, c(1,3), function(x) max(x, na.rm = TRUE))
+chevrotain.zobs[chevrotain.zobs == '-Inf'] <- NA     # site/years without visits
+chevrotain.zst <- chevrotain.zobs     # Obs. occurrence as inits for z
+chevrotain.inits <- function(){ list(z = chevrotain.zst)}
+
+# Parameters monitored
+params <- c("psi1", "phi", "eps", "gamma", "p", "psi", "z") # Could add 'z'
+
+# MCMC settings
+na <- 1000 ; ni <- 20000 ; nt <- 10 ; nb <- 10000 ; nc <- 3
+
+# Call JAGS (ART 3 min), check convergence and summarize posteriors
+wild.pig.fm2 <- jags(wild.pig.data, inits, params, here(models,"dynocc_naive.txt"), 
+                    n.adapt = na, n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb, 
+                    parallel = TRUE)
+muntjac.fm2 <- jags(muntjac.data, muntjac.inits, params, here(models,"dynocc_naive.txt"), 
+                    n.adapt = na, n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb, 
+                    parallel = TRUE)
+chevrotain.fm2 <- jags(chevrotain.data, chevrotain.inits, params, here(models,"dynocc_naive.txt"), 
+                    n.adapt = na, n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb, 
+                    parallel = TRUE)
+# summary
+print(wild.pig.dry.fm1, dig = 3) # SSOM dry
+print(wild.pig.wet.fm1, dig = 3) # SSOM wet
+print(wild.pig.fm2, dig = 3) # dynOcc
+
+print(muntjac.dry.fm1, dig = 3) # SSOM dry
+print(muntjac.wet.fm1, dig = 3) # SSOM wet
+print(muntjac.fm2, dig = 3)     # dynOcc
+
+print(chevrotain.dry.fm1, dig = 3) # SSOM dry
+print(chevrotain.wet.fm1, dig = 3) # SSOM wet
+print(chevrotain.fm2, dig = 3)     # dynOcc
+
+
+# set up summary tables for plots
+# psi
+wild.pig.psi.table <- wild.pig.fm2 |> 
+  gather_draws(psi[i]) |> 
+  mutate(season = case_when(i == 1 ~ "dry",
+                            i == 2 ~ "wet" ),
+         species = "wild pig") 
+muntjac.psi.table <- muntjac.fm2 |> 
+  gather_draws(psi[i]) |> 
+  mutate(season = case_when(i == 1 ~ "dry",
+                            i == 2 ~ "wet" ),
+         species = "muntjac") 
+chevrotain.psi.table <- chevrotain.fm2 |> 
+  gather_draws(psi[i]) |> 
+  mutate(season = case_when(i == 1 ~ "dry",
+                            i == 2 ~ "wet" ),
+         species = "chevrotain") 
+# all other params
+wild.pig.params.table <- wild.pig.fm2 |> 
+  gather_draws(phi, eps, gamma, p) |>
+  mutate(species = "wild pig")
+muntjac.params.table <- muntjac.fm2 |> 
+  gather_draws(phi, eps, gamma, p) |>
+  mutate(species = "muntjac")
+chevrotain.params.table <- chevrotain.fm2 |> 
+  gather_draws(phi, eps, gamma, p) |>
+  mutate(species = "chevrotain")
+
+# plots
+bind_rows(wild.pig.psi.table, muntjac.psi.table, chevrotain.psi.table) |> 
+  ggplot(aes(x = season, y = .value, fill = species)) +
+  stat_gradientinterval(position = "dodge", width = 0.5) +
+  labs(title = "Wild pig, muntjac, chevrotain @ CCMNP 2023: DynOcc",
+       subtitle = "Occupancy",
+       x = "Season",
+       y = "psi")
+bind_rows(wild.pig.params.table, muntjac.params.table, chevrotain.params.table) |> 
+  ggplot(aes(x = .variable, y = .value, fill = species)) +
+  stat_gradientinterval(position = "dodge", width = 0.5) +
+  labs(title = "Wild pig, muntjac, chevrotain @ CCMNP 2023: DynOcc",
+       subtitle = "extinction, colonization, detection, persistence",
+       x = "",
+       y = "")
+# phi : persistence probability
+# gamma: colonization probability
+# epsilon: extinction probability
+
+```
+
+### Dynamic Community Model (multiple species)
+
+Next we combine arrays and add the species $K$ dimension and attempt to fit a Dynamic Community Model.

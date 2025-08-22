@@ -1,0 +1,36 @@
+
+model {
+
+  # Priors
+  psi1 ~ dunif(0, 1)
+  phi ~ dunif(0, 1)
+  gamma ~ dunif(0, 1)
+  p ~ dunif(0, 1)
+
+  # Likelihood
+  # Ecological submodel: Define state conditional on parameters
+  for (i in 1:nsites){ # Loop over nsites sites
+    # Initial conditions of system
+    z[i,1] ~ dbern(psi1) # Presence/absence at start of study
+    # State transitions
+    for (t in 2:nyears){ # Loop over nyears years
+      z[i,t] ~ dbern(z[i,t-1] * phi + (1-z[i,t-1]) * gamma)
+    }
+  }
+
+  # Observation model
+  for (i in 1:nsites){
+    for (j in 1:nsurveys){
+      for (t in 1:nyears){
+        y[i,j,t] ~ dbern(z[i,t] * p)
+      }
+    }
+  }
+
+  # Derived parameters
+  eps <- 1 - phi # Extinction probability
+  psi[1] <- psi1 # Population occupancy
+  for (t in 2:nyears){
+    psi[t] <- psi[t-1] * phi + (1-psi[t-1]) * gamma
+  }
+}
