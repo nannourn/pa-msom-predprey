@@ -86,7 +86,7 @@ models <- here("models")
 
 # Introduction
 
-# Study Site 
+# Study Site
 
 ## CCMNP
 
@@ -313,18 +313,17 @@ chevrotain.wet.table <- chevrotain.wet.fm1 |>
 # all species 
 bind_rows(wild.pig.dry.table, wild.pig.wet.table, 
           muntjac.dry.table, muntjac.wet.table,
-          chevrotain.dry.table, chevrotain.wet.table)|> 
-  ggplot(aes(x = .value, y = .variable, fill = species)) +
-  stat_halfeye(alpha = 0.8, position = "dodge") +
+          chevrotain.dry.table, chevrotain.wet.table) |> 
+  ggplot(aes(x = .variable, y = .value, fill = species)) +
+  stat_gradientinterval(position = "dodge", width = 0.5) +
   labs(title = "Wild Pig, Muntjac, Chevrotain; SSOM",
        subtitle = "CCMNP 2023") +
-  facet_wrap(~ season) +
-  coord_flip()
+  facet_wrap(~ season)
 ```
 
 ### Dynamic Occupancy Models (single species)
 
-Now we look at single-species dynamic occupancy models, observing changes from dry season to wet season for our 3 ungulate species. 
+Now we look at single-species dynamic occupancy models, observing changes from dry season to wet season for our 3 ungulate species.
 
 This is really 3 seperate fitted dynamic occupancy models.
 
@@ -498,4 +497,16 @@ bind_rows(wild.pig.params.table, muntjac.params.table, chevrotain.params.table) 
 
 ### Dynamic Community Model (multiple species)
 
-Next we combine arrays and add the species $K$ dimension and attempt to fit a Dynamic Community Model.
+Next we combine arrays and add the species $k$ dimension and attempt to fit a Dynamic Community Model.
+
+1.  Initial state for species $k$:
+
+$$z_i,1,k \sim Bernoulli(\psi_k)$$
+
+2.  State dynamics for species $k$:
+
+$$z_{i, t+1, k} \mid z_{i,t,k} \sim Bernoulli(z_{i,t,k} \phi_k + (1-z_{i,t,k})\gamma_k)$$
+
+3. Observation process for species $k$:
+
+$$y_{i,j,t,k} \mid z_{i,t,k} \sim Bernoulli(z_{i,t,k}p_{k}) $$
