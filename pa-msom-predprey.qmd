@@ -283,38 +283,21 @@ chevrotain.dry.fm1 <- jags(chevrotain.dry.data, chevrotain.dry.inits, params,
 chevrotain.wet.fm1 <- jags(chevrotain.wet.data, chevrotain.wet.inits, params, 
                      here(models, "ssom_naive.txt"), 
                      n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb)
+# combine all fitted models into list
+ssom.fm1 <- list(pig.dry = wild.pig.dry.fm1, pig.wet = wild.pig.wet.fm1,
+                 muntjac.dry = muntjac.dry.fm1, muntjac.wet = muntjac.wet.fm1,
+                 chevrotain.dry = chevrotain.dry.fm1, 
+                 chevrotain.wet = chevrotain.wet.fm1)
+
 # check summary
-print(wild.pig.dry.fm1, dig = 3)
-print(wild.pig.wet.fm1, dig = 3)
-print(muntjac.dry.fm1, dig = 3)
-print(muntjac.wet.fm1, dig = 3)
-print(chevrotain.dry.fm1, dig = 3)
-print(chevrotain.wet.fm1, dig = 3)
+ssom.fm1 |> lmap(print, dig = 3)
 
-# check results and compare
-wild.pig.dry.table <- wild.pig.dry.fm1 |> 
-  gather_draws(psi, p) |> 
-  mutate(season = "dry", species="wild pig")
-wild.pig.wet.table <- wild.pig.wet.fm1 |> 
-  gather_draws(psi, p) |> 
-  mutate(season = "wet", species = "wild pig")
-muntjac.dry.table <- muntjac.dry.fm1 |> 
-  gather_draws(psi, p) |> 
-  mutate(season = "dry", species="muntjac")
-muntjac.wet.table <- muntjac.wet.fm1 |> 
-  gather_draws(psi, p) |> 
-  mutate(season = "wet", species = "muntjac")
-chevrotain.dry.table <- chevrotain.dry.fm1 |> 
-  gather_draws(psi, p) |> 
-  mutate(season = "dry", species="chevrotain")
-chevrotain.wet.table <- chevrotain.wet.fm1 |> 
-  gather_draws(psi, p) |> 
-  mutate(season = "wet", species = "chevrotain")
-
-# all species 
-bind_rows(wild.pig.dry.table, wild.pig.wet.table, 
-          muntjac.dry.table, muntjac.wet.table,
-          chevrotain.dry.table, chevrotain.wet.table) |> 
+# list outputs to plot all models and parameters
+ssom.fm1 |> 
+  map_dfr(gather_draws, psi, p, .id = "model") |>
+   separate_wider_delim(cols = model, 
+                        delim = ".",
+                        names = c("species", "season")) |> 
   ggplot(aes(x = .variable, y = .value, fill = species)) +
   stat_gradientinterval(position = "dodge", width = 0.5) +
   labs(title = "Wild Pig, Muntjac, Chevrotain; SSOM",
@@ -402,10 +385,10 @@ chevrotain.data <- list(y = chevrotain2,
                      nyears = dim(chevrotain2)[3])
 
 # Initial values
-zobs <- apply(wild.pig2, c(1,3), function(x) max(x, na.rm = TRUE))
-zobs[zobs == '-Inf'] <- NA     # 13 site/years without visits
-zst <- zobs     # Obs. occurrence as inits for z
-inits <- function(){ list(z = zst)}
+wild.pig.zobs <- apply(wild.pig2, c(1,3), function(x) max(x, na.rm = TRUE))
+wild.pig.zobs[wild.pig.zobs == '-Inf'] <- NA     # site/years without visits
+wild.pig.zst <- wild.pig.zobs     # Obs. occurrence as inits for z
+wild.pig.inits <- function(){ list(z = wild.pig.zst)}
 
 muntjac.zobs <- apply(muntjac2, c(1,3), function(x) max(x, na.rm = TRUE))
 muntjac.zobs[muntjac.zobs == '-Inf'] <- NA     # site/years without visits
@@ -424,72 +407,47 @@ params <- c("psi1", "phi", "eps", "gamma", "p", "psi", "z") # Could add 'z'
 na <- 1000 ; ni <- 20000 ; nt <- 10 ; nb <- 10000 ; nc <- 3
 
 # Call JAGS (ART 3 min), check convergence and summarize posteriors
-wild.pig.fm2 <- jags(wild.pig.data, inits, params, here(models,"dynocc_naive.txt"), 
-                    n.adapt = na, n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb, 
-                    parallel = TRUE)
+wild.pig.fm2 <- jags(wild.pig.data, wild.pig.inits, params, 
+                     here(models,"dynocc_naive.txt"), 
+                     n.adapt = na, n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb,
+                     parallel = TRUE)
 muntjac.fm2 <- jags(muntjac.data, muntjac.inits, params, here(models,"dynocc_naive.txt"), 
                     n.adapt = na, n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb, 
                     parallel = TRUE)
 chevrotain.fm2 <- jags(chevrotain.data, chevrotain.inits, params, here(models,"dynocc_naive.txt"), 
                     n.adapt = na, n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb, 
                     parallel = TRUE)
-# summary
-print(wild.pig.dry.fm1, dig = 3) # SSOM dry
-print(wild.pig.wet.fm1, dig = 3) # SSOM wet
-print(wild.pig.fm2, dig = 3) # dynOcc
 
-print(muntjac.dry.fm1, dig = 3) # SSOM dry
-print(muntjac.wet.fm1, dig = 3) # SSOM wet
-print(muntjac.fm2, dig = 3)     # dynOcc
+# combine all fitted model outputs into list
+dynocc.fm2 <- list(pig = wild.pig.fm2, muntjac = muntjac.fm2,
+                    chevrotain = chevrotain.fm2)
 
-print(chevrotain.dry.fm1, dig = 3) # SSOM dry
-print(chevrotain.wet.fm1, dig = 3) # SSOM wet
-print(chevrotain.fm2, dig = 3)     # dynOcc
-
+# check summary
+dynocc.fm2 |> lmap(print, dig = 3)
 
 # set up summary tables for plots
 # psi
-wild.pig.psi.table <- wild.pig.fm2 |> 
-  gather_draws(psi[i]) |> 
+dynocc.fm2 |> 
+  map_dfr(gather_draws, psi[i], .id = "species") |> 
   mutate(season = case_when(i == 1 ~ "dry",
-                            i == 2 ~ "wet" ),
-         species = "wild pig") 
-muntjac.psi.table <- muntjac.fm2 |> 
-  gather_draws(psi[i]) |> 
-  mutate(season = case_when(i == 1 ~ "dry",
-                            i == 2 ~ "wet" ),
-         species = "muntjac") 
-chevrotain.psi.table <- chevrotain.fm2 |> 
-  gather_draws(psi[i]) |> 
-  mutate(season = case_when(i == 1 ~ "dry",
-                            i == 2 ~ "wet" ),
-         species = "chevrotain") 
-# all other params
-wild.pig.params.table <- wild.pig.fm2 |> 
-  gather_draws(phi, eps, gamma, p) |>
-  mutate(species = "wild pig")
-muntjac.params.table <- muntjac.fm2 |> 
-  gather_draws(phi, eps, gamma, p) |>
-  mutate(species = "muntjac")
-chevrotain.params.table <- chevrotain.fm2 |> 
-  gather_draws(phi, eps, gamma, p) |>
-  mutate(species = "chevrotain")
-
-# plots
-bind_rows(wild.pig.psi.table, muntjac.psi.table, chevrotain.psi.table) |> 
+                            i == 2 ~ "wet" )) |> 
   ggplot(aes(x = season, y = .value, fill = species)) +
   stat_gradientinterval(position = "dodge", width = 0.5) +
   labs(title = "Wild pig, muntjac, chevrotain @ CCMNP 2023: DynOcc",
        subtitle = "Occupancy",
        x = "Season",
        y = "psi")
-bind_rows(wild.pig.params.table, muntjac.params.table, chevrotain.params.table) |> 
+
+# all other parameters
+dynocc.fm2 |> 
+  map_dfr(gather_draws, phi, eps, gamma, p, .id = "species") |> 
   ggplot(aes(x = .variable, y = .value, fill = species)) +
   stat_gradientinterval(position = "dodge", width = 0.5) +
   labs(title = "Wild pig, muntjac, chevrotain @ CCMNP 2023: DynOcc",
        subtitle = "extinction, colonization, detection, persistence",
        x = "",
-       y = "")
+       y = "parameters")
+
 # phi : persistence probability
 # gamma: colonization probability
 # epsilon: extinction probability
